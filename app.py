@@ -26,6 +26,8 @@ div[data-baseweb="select"]>div,.stNumberInput input{background:#10133a!important
 .stButton>button{width:100%;border:0;border-radius:14px;padding:.85rem 1rem;font-family:'Sora',sans-serif;font-weight:700;font-size:1rem;color:#0D0F2B;background:linear-gradient(90deg,var(--teal),#7cf0ff);box-shadow:0 8px 28px #19e3c133;transition:transform .15s,box-shadow .15s;}
 .stButton>button:hover{transform:translateY(-2px);box-shadow:0 12px 34px #19e3c155;color:#0D0F2B;}
 .stButton>button:focus-visible{outline:3px solid var(--violet);}
+.st-key-left_panel,.st-key-right_panel{background:linear-gradient(160deg,#1b1f55,var(--panel));border:1px solid var(--line)!important;border-radius:20px!important;padding:1.4rem 1.5rem!important;}
+.ph{font-family:'Sora',sans-serif;font-size:1.05rem;font-weight:700;margin:0 0 .6rem;color:#fff;}
 .gauge-wrap{text-align:center;padding:.5rem 0 0;}
 .gauge-wrap svg{width:100%;max-width:360px;}
 .verdict{font-family:'Sora',sans-serif;font-size:1.5rem;font-weight:700;margin:.2rem 0;}
@@ -43,9 +45,30 @@ div[data-baseweb="select"]>div,.stNumberInput input{background:#10133a!important
 FEATURES = ["gender", "age", "hypertension", "heart_disease",
             "smoking_history", "bmi", "HbA1c_level", "blood_glucose_level"]
 
-# LabelEncoder sorts alphabetically (uppercase first). Change here if your encoding differs.
-GENDER = {"Female": 0, "Male": 1, "Other": 2}
-SMOKING = {"No Info": 0, "Current": 1, "Ever": 2, "Former": 3, "Never": 4, "Not current": 5}
+GENDER = ["Female", "Male", "Other"]
+# label shown in the UI -> value used in the dataset
+SMOKING = {"No Info": "No Info", "Current": "current", "Ever": "ever",
+           "Former": "former", "Never": "never", "Not current": "not current"}
+LABEL_GENDER = {"Female": 0, "Male": 1, "Other": 2}
+LABEL_SMOKING = {"No Info": 0, "current": 1, "ever": 2, "former": 3, "never": 4, "not current": 5}
+
+
+def build_row(model, gender, smoking, age, bmi, hba1c, glucose, hyper, heart):
+    """Build one row that matches exactly the columns the model was trained on."""
+    s = SMOKING[smoking]
+    values = {"age": age, "hypertension": int(hyper), "heart_disease": int(heart),
+              "bmi": bmi, "HbA1c_level": hba1c, "blood_glucose_level": glucose,
+              "gender": LABEL_GENDER[gender], "smoking_history": LABEL_SMOKING[s]}
+    cols = list(getattr(model, "feature_names_in_", FEATURES))
+    row = {}
+    for c in cols:
+        if c.startswith("gender_"):
+            row[c] = int(gender == c[len("gender_"):])
+        elif c.startswith("smoking_history_"):
+            row[c] = int(s == c[len("smoking_history_"):])
+        else:
+            row[c] = values[c]
+    return pd.DataFrame([row])[cols]
 
 
 @st.cache_resource
@@ -76,10 +99,10 @@ st.markdown("""<div class="hero"><h1>GlucoSense</h1>
 
 left, right = st.columns([1.15, 1], gap="large")
 
-with left:
-    st.markdown('<div class="panel"><h3>Patient details</h3>', unsafe_allow_html=True)
+with left.container(border=True, key="left_panel"):
+    st.markdown('<p class="ph">Patient details</p>', unsafe_allow_html=True)
     c1, c2 = st.columns(2)
-    gender = c1.selectbox("Gender", list(GENDER))
+    gender = c1.selectbox("Gender", GENDER)
     smoking = c2.selectbox("Smoking history", list(SMOKING), index=5)
     age = st.slider("Age", 1, 100, 45)
     bmi = st.slider("BMI", 10.0, 60.0, 27.0, 0.1)
@@ -90,20 +113,16 @@ with left:
     hyper = c5.toggle("Hypertension")
     heart = c6.toggle("Heart disease")
     run = st.button("Check risk")
-    st.markdown("</div>", unsafe_allow_html=True)
 
-with right:
-    st.markdown('<div class="panel"><h3>Result</h3>', unsafe_allow_html=True)
+with right.container(border=True, key="right_panel"):
+    st.markdown('<p class="ph">Result</p>', unsafe_allow_html=True)
     if not run:
         st.markdown(gauge(0.0) + '<p class="sub" style="text-align:center">Fill in the details and press <b>Check risk</b>.</p>',
                     unsafe_allow_html=True)
     else:
         try:
             model, scaler = load_model()
-            row = pd.DataFrame([{
-                "gender": GENDER[gender], "age": age, "hypertension": int(hyper),
-                "heart_disease": int(heart), "smoking_history": SMOKING[smoking],
-                "bmi": bmi, "HbA1c_level": hba1c, "blood_glucose_level": glucose}])[FEATURES]
+            row = build_row(model, gender, smoking, age, bmi, hba1c, glucose, hyper, heart)
             X = scaler.transform(row) if scaler else row
             p = float(model.predict_proba(X)[0][1])
 
@@ -135,4 +154,4 @@ with right:
             st.error("finalModel.pkl not found. Put it in the same folder as app.py and run again.")
         except Exception as e:
             st.error(f"Prediction failed: {e}")
-    st.markdown('<p class="note">Educational project, not a medical diagnosis.</p></div>', unsafe_allow_html=True)
+    st.markdown('<p class="note">Educational project, not a medical diagnosis.</p>', unsafe_allow_html=True)
